@@ -29,18 +29,38 @@
 //	className:'validate-notice', //提示的dom元素class
 // }
 
+//Pollyfill
+if (!Object.assign) {
+  Object.defineProperty(Object, "assign", {
+    enumerable: false,
+    configurable: true,
+    writable: true,
+    value: function(target, firstSource) {
+      "use strict";
+      if (target === undefined || target === null)
+        throw new TypeError("Cannot convert first argument to object");
+      var to = Object(target);
+      for (var i = 1; i < arguments.length; i++) {
+        var nextSource = arguments[i];
+        if (nextSource === undefined || nextSource === null) continue;
+        var keysArray = Object.keys(Object(nextSource));
+        for (var nextIndex = 0, len = keysArray.length; nextIndex < len; nextIndex++) {
+          var nextKey = keysArray[nextIndex];
+          var desc = Object.getOwnPropertyDescriptor(nextSource, nextKey);
+          if (desc !== undefined && desc.enumerable) to[nextKey] = nextSource[nextKey];
+        }
+      }
+      return to;
+    }
+  });
+}
+
 
 const DEFAULTOPTION={
 	inline:false,
 	hot:true,
 	className:'validate-notice',
 };
-
-const MODELTYPE={
-
-
-};
-
 
 
 let debounce=(function (){
@@ -96,7 +116,8 @@ var Ajax={
 class Validation {
 
 	constructor(option){
-		this.legal=true;
+		//哪些数据是非法
+		this.illegalArray=[];
 		this.option=Object.assign({},DEFAULTOPTION,option);
 		this.inputs=this.option.el.querySelectorAll('[name]');
 		this.init();
@@ -107,10 +128,28 @@ class Validation {
 		// 如果是热检测
 		if(this.option.hot){
 
-			for(let input of this.inputs){
-				input.addEventListener('keyup',(e) => {
+
+			if(this.option.submitButton){
+				this.disableEvent=document.createEvent('CustomEvent');
+				this.enableEvent=document.createEvent('CustomEvent');
+				this.disableEvent.initCustomEvent('disable',true,true,{});
+				this.enableEvent.initCustomEvent('enable',true,true,{});
+
+				this.option.submitButton.addEventListener('disable', function(e){
+					this.setAttribute('disabled',true);
+				});
+				this.option.submitButton.addEventListener('enable', function(e){
+					this.removeAttribute('disabled')
+				});
+			}
+
+
+
+			for(let i=0; i<this.inputs.length; i++){
+				this.inputs[i].id=i;
+				this.inputs[i].addEventListener('keyup',(e) => {
 					debounce(() => {
-						this.validateData(input,this.option.model[input.name]);						
+						this.validateData(this.inputs[i],this.option.model[this.inputs[i].name])							
 					});
 				});
 			}
@@ -132,7 +171,8 @@ class Validation {
 		let validate=true,
 			a=el,
 			m=model,
-			errType='';
+			errType='',
+			notice='';
 
 	      //是否需要验证
 	      if(!m){
@@ -196,7 +236,10 @@ class Validation {
 	      //本地验证完毕后
 	      if(validate){
 	      	if(m.ajax){
-	      		this.serverValidate(a,m);
+	      		//如果服务器验证不通过
+	      		if(!this.serverValidate(a,m)){
+	      			validate=false;
+	      		}
 	      	}else{
 	      		this.removeValidateNotice(a);
 	      	}
@@ -209,6 +252,24 @@ class Validation {
 	      	}
 	      }
 
+
+	     if(validate){
+			this.illegalArray[a.id]=true;
+			let allIllegal=this.illegalArray.every(function(a){
+				if(a){
+					return a==true;
+				}else{
+					return false;
+				}
+			});
+			if(allIllegal){
+				this.option.submitButton.dispatchEvent(this.enableEvent);
+			}
+		}else{
+			this.illegalArray[a.id]=false;
+			this.option.submitButton.dispatchEvent(this.disableEvent);
+		}			
+
 	      return validate;
 	}
 
@@ -218,8 +279,10 @@ class Validation {
 			let notice=model.ajax.code[JSON.parse(res)[model.ajax.name]];
 			if(notice){
 				this.validateNotice(el,notice);
+				return false;
 			}else{
 				this.removeValidateNotice(el);
+				return true;
 			}
 
 		});
@@ -256,12 +319,14 @@ class Validation {
 
 
 	//显示提示内容
-	validateNotice(el,notice){
+	validateNotice(el,notice,isTop){
 
 		let domNotice;
 		let parent;
 
-		if(this.option.inline){
+		if(isTop){
+			parent=this.option.el;
+		}else if(this.option.inline){
 			parent=el.parentElement.parentElement;
 		}else{
 	    	parent=el.parentElement;
@@ -273,10 +338,14 @@ class Validation {
 	    if(!domNotice){
 	      domNotice=document.createElement('div');
 	      domNotice.className=this.option.className;
-	      parent.appendChild(domNotice);
+	      if(isTop){
+	      	parent.insertBefore(domNotice,parent.childNodes[0]);
+	      }else{
+	      	parent.appendChild(domNotice);
+	      }
 	    }
 
-	    if(this.option.inline){
+	    if(this.option.inline||!isTop){
 			domNotice.style.display='inline-block';
 			domNotice.style.padding='0 10px';
 		}
@@ -293,9 +362,11 @@ class Validation {
 	}
 
 	//移除提示
-	removeValidateNotice(el){
+	removeValidateNotice(el,isTop){
 		let parent;
-		if(this.option.inline){
+		if(isTop){
+			parent=this.option.el;
+		}else if(this.option.inline){
 			parent=el.parentElement.parentElement;
 		}else{
 			parent=el.parentElement;
@@ -306,6 +377,7 @@ class Validation {
 		}
 	}
 }
+
 
 
 
