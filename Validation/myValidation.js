@@ -17,16 +17,17 @@
 //				method:post,
 //				name:'code',	 //返回字段名称
 // 				code:{           //不同错误码对应错误提示
-// 					'400':'username error'
+// 					error:{'400':'username error'},
+//					success:['200']
 // 				}
 // 			}
 // 		}
 // 	},
 //
 // 	inline:false,                //是否同一行显示  默认在下方
-// 	hot:true,                    //热检测，即无需点击提交按钮，输入时检测   默认true
 // 	submitButton:'提交按钮',
 //	className:'validate-notice', //提示的dom元素class
+//	disableButtons:[{el:el,rules:['name','password']}]
 // }
 
 //Pollyfill
@@ -58,7 +59,6 @@ if (!Object.assign) {
 
 const DEFAULTOPTION={
 	inline:false,
-	hot:true,
 	className:'validate-notice',
 };
 
@@ -91,7 +91,7 @@ var Ajax={
     	query=query.substr(0,query.length-1);
 
         var obj=new XMLHttpRequest();  // XMLHttpRequest对象用于在后台与服务器交换数据          
-        obj.open('GET',url+query,true);
+        obj.open('GET',url+query,false);
         obj.onreadystatechange=function(){
             if (obj.readyState == 4 && obj.status == 200 || obj.status == 304) { // readyState==4说明请求已完成
                 fn.call(this, obj.responseText);  //从服务器获得数据
@@ -101,14 +101,19 @@ var Ajax={
     },
     post: function (url, data, fn) {
         var obj = new XMLHttpRequest();
-        obj.open("POST", url, true);
+        obj.open("POST", url, false);
         obj.setRequestHeader("Content-type", "application/x-www-form-urlencoded"); // 发送信息至服务器时内容编码类型
         obj.onreadystatechange = function () {
             if (obj.readyState == 4 && (obj.status == 200 || obj.status == 304)) {  // 304未修改
                 fn.call(this, obj.responseText);
             }
         };
-        obj.send(data);
+        var d='';
+        for(var key in data){
+        	d+=`${key}=${data[key]}&`
+        }
+        d=d.substr(0,d.length-1);
+        obj.send(d);
     }
 }
 
@@ -125,44 +130,81 @@ class Validation {
 
 	init(){
 
-		// 如果是热检测
-		if(this.option.hot){
-
-
-			if(this.option.submitButton){
 				this.disableEvent=document.createEvent('CustomEvent');
 				this.enableEvent=document.createEvent('CustomEvent');
 				this.disableEvent.initCustomEvent('disable',true,true,{});
 				this.enableEvent.initCustomEvent('enable',true,true,{});
 
+			if(this.option.submitButton){
 				this.option.submitButton.addEventListener('disable', function(e){
 					this.setAttribute('disabled',true);
 				});
 				this.option.submitButton.addEventListener('enable', function(e){
-					this.removeAttribute('disabled')
+					this.removeAttribute('disabled');
 				});
 			}
+
 
 
 
 			for(let i=0; i<this.inputs.length; i++){
-				this.inputs[i].id=i;
-				this.inputs[i].addEventListener('keyup',(e) => {
+				//为每个input添加id标记
+				this.inputs[i].validate_id=i;
+				if(this.option.disableButtons){
+					this.option.disableButtons.map( (a) => {
+						a.el.addEventListener('disable',function(e){
+							this.setAttribute('disabled',true);
+						});
+						a.el.addEventListener('enable',function(e){
+							this.removeAttribute('disabled');
+						})
+						for(let o=0; o<a.rules.length; o++){
+							if(a.rules[o] == this.inputs[i].name){
+								a.rules[o]=i;
+							}
+						}
+					})
+				}
+				let eventType='keyup';
+				switch (this.inputs[i].type){
+					case 'checkbox':
+						eventType='click';
+						break;
+					case 'select':
+						eventType='change';
+						break;
+					default:
+						eventType='keyup';		
+				}
+
+				let check=(e) => {
 					debounce(() => {
-						this.validateData(this.inputs[i],this.option.model[this.inputs[i].name])							
+						let result=this.validateData(this.inputs[i],this.option.model[this.inputs[i].name]);
+						if(result.validate){
+							this.removeValidateNotice(this.inputs[i]);
+						}else{
+							this.validateNotice(this.inputs[i],result.notice);
+						}
+
 					});
-				});
+				}
+
+				this.inputs[i].dataset.eventtype=eventType;
+				this.inputs[i].addEventListener(eventType,check);
+				this.inputs[i].addEventListener('change',check);
 			}
 
-		}
+			
 
-		this.option.submitButton&&this.option.submitButton.addEventListener('click', (e) => {
+		// this.option.submitButton&&this.option.submitButton.addEventListener('click', (e) => {
 
-			this.validateForm();
+		// 	if(!this.validateForm(true)){
+		// 		e.preventDefault();
+		// 	}
 
-		});
+		// });
 
-
+		this.validateForm()
 
 	}
 
@@ -176,7 +218,7 @@ class Validation {
 
 	      //是否需要验证
 	      if(!m){
-	      	return;
+	      	return {validate};
 	      //如果必填并且值为空
 	      }else if(m.required&&a.value.toString().length<=0){
 
@@ -226,71 +268,122 @@ class Validation {
 
 	      }
 
+	      // if(m.value){
+	      // 	if(typeof m.value == 'object'){
+
+	      // 	}
+	      // }
+
 	      if(m.confirm){
 	      	if(m.confirm.value != a.value){
 	      		validate=false;
 	      		errType='confirm';
 	      	}
+
+	      	// 如果是第一次输入，对相同值添加事件
+	      	if(!m.confirm.dataset.first){
+	      		m.confirm.dataset.first='true';
+
+	      		m.confirm.addEventListener(m.confirm.dataset.eventtype, (e) => {
+	      		debounce( () => {
+	      			let result=this.validateData(a,m);
+	      			if(result.validate){
+	      				this.removeValidateNotice(a)
+	      			}else{
+	      				this.validateNotice(a,result.notice);
+	      			}
+	      		})
+	      		})
+	      	}
+
+	      	
 	      }
 
 	      //本地验证完毕后
 	      if(validate){
 	      	if(m.ajax){
 	      		//如果服务器验证不通过
-	      		if(!this.serverValidate(a,m)){
-	      			validate=false;
-	      		}
-	      	}else{
-	      		this.removeValidateNotice(a);
+	      			let result=this.serverValidate(a,m);
+		      		if(!result.illegal){
+		      			validate=false;
+		      			notice=result.notice;
+		      		}
+
+	      			
+
 	      	}
 
 	      }else{
 	      	if(typeof m.notice == 'object'){
-	      		this.validateNotice(a,m.notice[errType]);
+	      		notice=m.notice[errType];
 	      	}else{
-	      		this.validateNotice(a,m.notice);
+	      		notice=m.notice;
 	      	}
 	      }
 
 
-	     if(validate){
-			this.illegalArray[a.id]=true;
-			let allIllegal=this.illegalArray.every(function(a){
-				if(a){
-					return a==true;
-				}else{
-					return false;
+	     	if(validate){
+				this.illegalArray[a.validate_id]=true;
+				let allIllegal=this.illegalArray.every(function(a){
+					if(a){
+						return a == true;
+					}else{
+						return false;
+					}
+				});
+				if(allIllegal){
+					this.option.submitButton&&this.option.submitButton.dispatchEvent(this.enableEvent);
 				}
-			});
-			if(allIllegal){
-				this.option.submitButton.dispatchEvent(this.enableEvent);
-			}
-		}else{
-			this.illegalArray[a.id]=false;
-			this.option.submitButton.dispatchEvent(this.disableEvent);
-		}			
+			}else{
+				this.illegalArray[a.validate_id]=false;
+				this.option.submitButton&&this.option.submitButton.dispatchEvent(this.disableEvent);
+			}	
 
-	      return validate;
+
+	    		
+	
+		this.checkAllValidate();							
+
+	    return {validate,notice};
 	}
 
 	serverValidate(el,model){
-		Ajax[model.ajax.method](model.ajax.url,{[el.name]:el.value},(res) => {
+		let result={};
+			Ajax[model.ajax.method](model.ajax.url,{[el.name]:el.value},(res) => {
+				let notice;
+				let code=model.ajax.code;
+				if(code.success){
+					let success=false;
+					code.success.map( (a) => {
+						if(a == model.ajax.name?JSON.parse(res)[model.ajax.name]:JSON.parse(res)){
+							success=true;
+						}
+					});
+					if(!success){
+						notice='';
+					}
+				}
 
-			let notice=model.ajax.code[JSON.parse(res)[model.ajax.name]];
-			if(notice){
-				this.validateNotice(el,notice);
-				return false;
-			}else{
-				this.removeValidateNotice(el);
-				return true;
-			}
+				if(code.error){
+					notice=code.error[model.ajax.name?JSON.parse(res)[model.ajax.name]:JSON.parse(res)];
+				}
 
-		});
+				if(notice&&notice.length>0){
+					// this.validateNotice(el,notice);
+					result={illegal:false,notice}
+				}else{
+					// this.removeValidateNotice(el);
+					result={illegal:true}
+				}
+
+			});
+
+			return result;	
 	}
 
 
 	//根据数据模型对整个表单进行验证
-	validateForm(){
+	validateForm(hasNotice){
 		let {model}=this.option;
 
 	    //取得所有元素
@@ -306,15 +399,53 @@ class Validation {
 
 
 	      // 验证完毕
-	      if(!this.validateData(a,m)){
+	      let result=this.validateData(a,m);
+	      if(!result.validate){
 	        if(allValidate){
 	          allValidate=false;
 	        }
+
+	        if(hasNotice){
+	        	this.validateNotice(a,result.notice);
+	        }
+
+	      }else{
+	      	this.removeValidateNotice(a);
 	      }
 
 	    }
 
 	    return allValidate;
+	}
+
+
+	checkAllValidate(){
+		if(!this.option.disableButtons) return;
+		this.option.disableButtons.map( (a) => {
+			let all=true;
+			a.rules.map( (b) => {
+				if(this.illegalArray[b] == false) all=false;
+			})
+			if(all&&a.el.dataset.forcedisable!='true'){
+				a.el.dispatchEvent(this.enableEvent);
+			}else if((!all)&& a.el.dataset.forcedisable!='false'){
+				a.el.dispatchEvent(this.disableEvent);
+			}
+		})
+	}
+	
+
+	toggleCheckButtons(el,bool){
+		if(bool === true){
+			el.dispatchEvent(this.enableEvent);
+			el.dataset.forcedisable='false';
+
+		}else if(bool === false){
+			el.dispatchEvent(this.disableEvent);
+			el.dataset.forcedisable='true';
+		}else{
+			el.dataset.forcedisable='';
+		}
 	}
 
 
@@ -345,7 +476,7 @@ class Validation {
 	      }
 	    }
 
-	    if(this.option.inline||!isTop){
+	    if(this.option.inline){
 			domNotice.style.display='inline-block';
 			domNotice.style.padding='0 10px';
 		}
