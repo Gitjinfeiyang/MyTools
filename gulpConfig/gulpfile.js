@@ -4,7 +4,7 @@
  */
 // Load plugins
 var gulp = require('gulp'),
-    // sass = require('gulp-sass'),
+    less = require('gulp-less'),
     autoprefixer = require('gulp-autoprefixer'),
     minifycss = require('gulp-clean-css'),
     // jshint = require('gulp-jshint'),
@@ -32,18 +32,29 @@ gulp.task('styles', function() {
     .pipe(livereload())
 });
 
+gulp.task('less', function() {
+    return gulp.src('css/*.less')
+    .pipe(less())
+    .pipe(autoprefixer('last 2 version', 'safari 5', 'ie 8', 'ie 9', 'opera 12.1', 'ios 6', 'android 4'))
+    .pipe(gulp.dest('stylesheets'))
+    .pipe(rename({ suffix: '.min' }))
+    .pipe(minifycss())
+    .pipe(gulp.dest('assets/css'))
+    .pipe(livereload())
+});
+
 
 // Scripts
 gulp.task('scripts', function() {
   return gulp.src('js/*.js')
-    .pipe(sourcemaps.init())
+    // .pipe(sourcemaps.init())
     // .pipe(jshint())
     // .pipe(jshint.reporter('default'))
     .pipe(babel({presets:['es2016']}))
     // .pipe(concat('public.js'))
     .pipe(rename({ suffix: '.min' }))
     .pipe(uglify())
-    .pipe(sourcemaps.write())
+    // .pipe(sourcemaps.write())
     .pipe(gulp.dest('assets/js'))
     .pipe(livereload())
 
@@ -60,7 +71,7 @@ gulp.task('images', function() {
 });
 
 gulp.task('html',function(){
-    return gulp.src('./','index.html')
+    return gulp.src('./','*.html')
         .pipe(htmlmin({collapseWhitespace: true}))
         .pipe(gulp.dest('assets'))
 });
@@ -68,7 +79,7 @@ gulp.task('html',function(){
 
 // Default task
 gulp.task('default', function() {
-    gulp.start('styles', 'scripts', 'images');
+    gulp.start('styles', 'scripts', 'images','less');
 });
 
 
@@ -82,6 +93,8 @@ gulp.task('watch', function() {
 
   // Watch image files
   gulp.watch('images/*', ['images']);
+
+  gulp.watch('css/*.less',['less']);
 
   // Create LiveReload server
   livereload.listen();
